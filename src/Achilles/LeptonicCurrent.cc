@@ -7,7 +7,7 @@
 
 using achilles::LeptonicCurrent;
 
-void LeptonicCurrent::Initialize(const ProcessInfo &process) {
+void NeutrinoCurrent::Initialize(const ProcessInfo &process) {
     using namespace achilles::Constant;
     const std::complex<double> i(0, 1);
     // Determine process
@@ -42,17 +42,17 @@ void LeptonicCurrent::Initialize(const ProcessInfo &process) {
     anti = process.m_leptonic.first.AsInt() < 0;
 }
 
-bool LeptonicCurrent::NeutralCurrent(achilles::PID initial, achilles::PID final) const {
+bool NeutrinoCurrent::NeutralCurrent(achilles::PID initial, achilles::PID final) const {
     return initial == final;
 }
 
-bool LeptonicCurrent::ChargedCurrent(bool neutrino, achilles::PID initial,
+bool NeutrinoCurrent::ChargedCurrent(bool neutrino, achilles::PID initial,
                                      achilles::PID final) const {
     int sign = std::signbit(initial.AsInt()) ? -1 : 1;
     return initial.AsInt() - sign * (2 * neutrino - 1) == final.AsInt();
 }
 
-achilles::FFDictionary LeptonicCurrent::GetFormFactor() {
+achilles::FFDictionary NeutrinoCurrent::GetFormFactor() {
     FFDictionary results;
     static constexpr std::complex<double> i(0, 1);
     using namespace achilles::Constant;
@@ -97,13 +97,13 @@ achilles::FFDictionary LeptonicCurrent::GetFormFactor() {
                                           {FormFactorInfo::Type::F2n, coupl}};
         results[{PID::carbon(), pid}] = {{FormFactorInfo::Type::FCoh, 6.0 * coupl}};
     } else {
-        throw std::runtime_error("LeptonicCurrent: Invalid probe");
+        throw std::runtime_error("NeutrinoCurrent: Invalid probe");
     }
 
     return results;
 }
 
-achilles::Currents LeptonicCurrent::CalcCurrents(const FourVector &p_in,
+achilles::Currents NeutrinoCurrent::CalcCurrents(const FourVector &p_in,
                                                  const FourVector &p_out) const {
     Currents currents;
 
@@ -145,3 +145,72 @@ achilles::Currents LeptonicCurrent::CalcCurrents(const FourVector &p_in,
 
     return currents;
 }
+
+
+
+
+// Initialize PrimakoffCurrent
+void PrimakoffCurrent::Initialize(const ProcessInfo &process,
+                                  const double &coupling
+                                  const double &mass,
+                                  const double &mediator_mass,
+                                  const double &mediator_width) {
+    
+    alp_mass = mass;
+    coupling_dim5 = coupling;
+    vector_med_mass = mediator_mass;
+    vector_med_width = mediator_width;
+    pid = 81;  // TODO: use different PID? should ALP PID added to yaml file?
+
+}
+
+achilles::FFDictionary PrimakoffCurrent::GetFormFactor() {
+    FFDictionary results;
+    static constexpr std::complex<double> i(0, 1);
+    using namespace achilles::Constant;
+
+    results[{PID::proton(), pid}] = {{FormFactorInfo::Type::F1p, 0.0},
+                                        {FormFactorInfo::Type::F1n, 0.0},
+                                        {FormFactorInfo::Type::F2p, 0.0},
+                                        {FormFactorInfo::Type::F2n, 0.0},
+                                        {FormFactorInfo::Type::FA, coupling_dim5}};
+    results[{PID::neutron(), pid}] = {};
+    results[{PID::carbon(), pid}] = {};
+
+    return results;
+}
+
+
+
+achilles::Currents PrimakoffCurrent::CalcCurrents(const FourVector &p_in,
+                                                 const FourVector &p_out) const {
+    Currents currents;
+
+    // Calculate currents: incoming scalar particle, outgoing photon, vector mediator
+    Current result;
+    FourVector q = p_in - p_out;
+    double q2 = q.M2();
+    std::complex<double> prop =
+        std::complex<double>(0, 1) / (q2 - vector_med_mass * vector_med_mass - std::complex<double>(0, 1) * vector_med_mass * vector_med_width);
+
+    FourVector eps;  // placeholder <--- need PolarizationVector class to replace this for the outgoing polarization vector
+    double eps_dot_q = eps * q;
+    double p_out_dot_q = p_out * q;
+
+    // TODO: initialize eps in the for loop over polarizations
+
+    spdlog::trace("Calculating Current for {}", pid);
+    for(size_t i = 0; i < 2; ++i) {  // sum over final photon polarization
+        VCurrent subcur;
+        for(size_t mu = 0; mu < 4; ++mu) {
+            // for Primakoff, we have a massive incoming scalar/pseudoscalar with a massive vector mediator
+            subcur[mu] = coupling*(eps_dot_q*p_out[mu] - p_out_dot_q*[mu]) * prop;
+            spdlog::trace("Current[{}][{}] = {}", 2 * i + j, mu, subcur[mu]);
+        result.push_back(subcur);
+        }
+    }
+    currents[pid] = result;
+
+    return currents;
+}
+
